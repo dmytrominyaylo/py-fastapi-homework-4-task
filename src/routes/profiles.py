@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Header, Depends, HTTPException
+from fastapi import APIRouter, Header, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette import status
@@ -15,6 +15,8 @@ from database import (
 from security.http import get_token
 from security.interfaces import JWTAuthManagerInterface
 from storages import S3StorageInterface
+from validation import validate_image
+from pydantic import ValidationError
 
 router = APIRouter()
 
@@ -26,14 +28,36 @@ router = APIRouter()
 )
 async def create_profile(
     user_id: int,
+    first_name: str = Form(...),
+    last_name: str = Form(...),
+    gender: str = Form(...),
+    date_of_birth: str = Form(...),
+    info: str = Form(...),
+    avatar: UploadFile = File(...),
     token: str = Depends(get_token),
     jwt_manager: JWTAuthManagerInterface = Depends(get_jwt_auth_manager),
     db: AsyncSession = Depends(get_db),
     s3_client: S3StorageInterface = Depends(get_s3_storage_client),
-    profile_data: ProfileCreateSchema = Depends(
-        ProfileCreateSchema.from_request
-    ),
 ) -> ProfileResponseSchema:
+    # 1. Валідація даних (422)
+    try:
+        # Валідація основних полів
+        profile_data = ProfileCreateSchema(
+            first_name=first_name,
+            last_name=last_name,
+            gender=gender,
+            date_of_birth=date_of_birth,
+            info=info,
+        )
+        # Валідація файла
+        validate_image(avatar)
+    except ValidationError as e:
+        # Pydantic повертає detail у іншому форматі, але FastAPI це підхопить
+        raise HTTPException(status_code=422, detail=e.errors())
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    # 2. Перевірка токена (401)
     try:
         payload = jwt_manager.decode_access_token(token)
         current_user_id = payload.get("user_id")
@@ -42,6 +66,7 @@ async def create_profile(
             status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e)
         )
 
+    # 3. Перевірка прав (403)
     if current_user_id != user_id:
         group_stmt = (
             select(UserGroupModel)
@@ -56,6 +81,7 @@ async def create_profile(
                 detail="You don't have permission to edit this profile.",
             )
 
+    # 4. Перевірка існування користувача (401)
     user_stmt = select(UserModel).where(UserModel.id == user_id)
     user_result = await db.execute(user_stmt)
     user = user_result.scalars().first()
@@ -65,6 +91,7 @@ async def create_profile(
             detail="User not found or not active.",
         )
 
+    # 5. Перевірка дубля профілю (400)
     existing_stmt = select(UserProfileModel).where(
         UserProfileModel.user_id == user_id
     )
@@ -75,8 +102,9 @@ async def create_profile(
             detail="User already has a profile.",
         )
 
-    avatar_data = await profile_data.avatar.read()
-    avatar_key = f"avatars/{user_id}_{profile_data.avatar.filename}"
+    # 6. Завантаження аватара
+    avatar_data = await avatar.read()
+    avatar_key = f"avatars/{user_id}_{avatar.filename}"
 
     try:
         await s3_client.upload_file(

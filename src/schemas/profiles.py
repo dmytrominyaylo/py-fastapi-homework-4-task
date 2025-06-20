@@ -36,8 +36,8 @@ class ProfileCreateSchema(BaseModel):
             avatar=avatar,
         )
 
-    @classmethod
     @field_validator("first_name", "last_name")
+    @classmethod
     def validate_name_field(cls, name: str):
         try:
             validate_name(name)
@@ -45,8 +45,8 @@ class ProfileCreateSchema(BaseModel):
         except ValueError as e:
             raise HTTPException(status_code=422, detail=str(e))
 
-    @classmethod
     @field_validator("avatar")
+    @classmethod
     def validate_avatar(cls, avatar: UploadFile):
         try:
             validate_image(avatar)
@@ -54,8 +54,8 @@ class ProfileCreateSchema(BaseModel):
         except ValueError as e:
             raise HTTPException(status_code=422, detail=str(e))
 
-    @classmethod
     @field_validator("gender")
+    @classmethod
     def validate_gender_field(cls, gender: str):
         try:
             validate_gender(gender)
@@ -63,8 +63,8 @@ class ProfileCreateSchema(BaseModel):
         except ValueError as e:
             raise HTTPException(status_code=422, detail=str(e))
 
-    @classmethod
     @field_validator("date_of_birth")
+    @classmethod
     def validate_date_of_birth(cls, date_of_birth: date):
         try:
             validate_birth_date(date_of_birth)
@@ -72,8 +72,8 @@ class ProfileCreateSchema(BaseModel):
         except ValueError as e:
             raise HTTPException(status_code=422, detail=str(e))
 
-    @classmethod
     @field_validator("info")
+    @classmethod
     def validate_info_field(cls, info: str):
         if not info.strip():
             raise HTTPException(
